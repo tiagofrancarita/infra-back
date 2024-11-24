@@ -104,6 +104,10 @@ Resources:
           FromPort: '80'
           ToPort: '80'
           CidrIp: '0.0.0.0/0'
+        - IpProtocol: 'tcp'
+          FromPort: '8080'
+          ToPort: '8080'
+          CidrIp: '0.0.0.0/0'  # Permite acessar a porta 8080 de qualquer lugar
 
   # Subnet Group para o banco de dados
   MyDBSubnetGroup:
@@ -217,12 +221,12 @@ Resources:
             # Instala o Maven
             apt-get install -y maven
 
-            # Cria a pasta /app
-            mkdir -p /app
+            # Cria a pasta /home/ubuntu/app/
+            mkdir -p /home/ubuntu/app/
 
             # Logs de verificação
-            echo "JDK 17 instalado: $(java -version)" > /app/setup.log
-            echo "Maven instalado: $(mvn -version)" >> /app/setup.log
+            echo "JDK 17 instalado: $(java -version)" > /home/ubuntu/app/setup.log
+            echo "Maven instalado: $(mvn -version)" >> /home/ubuntu/app/setup.log
 
 Outputs:
   LoadBalancerDNSName:
