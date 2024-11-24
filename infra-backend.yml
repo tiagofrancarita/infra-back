@@ -67,7 +67,7 @@ Resources:
         - IpProtocol: 'tcp'
           FromPort: '22'
           ToPort: '22'
-          CidrIp: '0.0.0.0/0'
+          CidrIp: '0.0.0.0/0'   # Permite SSH de qualquer lugar (recomenda-se restringir em produção)
         - IpProtocol: 'tcp'
           FromPort: '3306'
           ToPort: '3306'
