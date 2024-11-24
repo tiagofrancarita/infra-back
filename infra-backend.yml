@@ -1,0 +1,202 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    Description: 'Tipo da instância EC2 (ex: t2.micro)'
+  KeyName:
+    Type: String
+    Description: 'Nome da chave SSH para acesso à instância EC2'
+
+Resources:
+  # Criação da VPC
+  MyVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: '10.0.0.0/16'
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: 'MyVPC'
+
+  # Sub-redes públicas
+  MySubnetA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: '10.0.1.0/24'
+      AvailabilityZone: 'us-east-2a'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: 'MySubnetA'
+
+  MySubnetB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: '10.0.2.0/24'
+      AvailabilityZone: 'us-east-2b'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: 'MySubnetB'
+
+  # Internet Gateway
+  MyInternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: 'MyInternetGateway'
+
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref MyInternetGateway
+
+  # Security Group
+  MySecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Security Group para EC2 e RDS'
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: 'tcp'
+          FromPort: '3306'
+          ToPort: '3306'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: 'tcp'
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: '0.0.0.0/0'
+
+  # Subnet Group para o banco de dados
+  MyDBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: 'Subnet Group for RDS'
+      SubnetIds:
+        - !Ref MySubnetA
+        - !Ref MySubnetB
+
+  # Banco de Dados RDS
+  MySQLDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: '20'
+      DBName: 'microserviceDB'
+      Engine: 'MySQL'
+      EngineVersion: '8.0'
+      MasterUsername: 'admin'
+      MasterUserPassword: 'yourpassword'
+      VPCSecurityGroups:
+        - !Ref MySecurityGroup
+      PubliclyAccessible: true
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      EnableCloudwatchLogsExports:
+        - "error"
+        - "general"
+        - "slowquery"
+
+  # Load Balancer
+  MyLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: 'MyALB'
+      Subnets:
+        - !Ref MySubnetA
+        - !Ref MySubnetB
+      SecurityGroups:
+        - !Ref MySecurityGroup
+      Scheme: 'internet-facing'
+      Type: 'application'
+      IpAddressType: 'ipv4'
+
+  # Alvo do Load Balancer
+  MyTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Name: 'MyTargetGroup'
+      Port: 80
+      Protocol: 'HTTP'
+      VpcId: !Ref MyVPC
+      HealthCheckPath: '/'
+      HealthCheckProtocol: 'HTTP'
+      Matcher:
+        HttpCode: '200'
+
+  # Listener do Load Balancer
+  MyListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      LoadBalancerArn: !Ref MyLoadBalancer
+      Protocol: 'HTTP'
+      Port: 80
+      DefaultActions:
+        - Type: 'forward'
+          TargetGroupArn: !Ref MyTargetGroup
+
+  # Auto Scaling Group
+  MyAutoScalingGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref MySubnetA
+        - !Ref MySubnetB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLaunchTemplate
+        Version: !GetAtt MyLaunchTemplate.LatestVersionNumber
+      MinSize: '1'
+      MaxSize: '5'
+      DesiredCapacity: '1'
+      TargetGroupARNs:
+        - !Ref MyTargetGroup
+
+  # Launch Template para Auto Scaling
+  MyLaunchTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateName: 'MyLaunchTemplate'
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        ImageId: 'ami-0ea3c35c5c3284d82' # Substituir pelo ID de AMI compatível com sua região
+        KeyName: !Ref KeyName
+        SecurityGroupIds:
+          - !Ref MySecurityGroup
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            # Atualiza os pacotes do sistema
+            apt-get update -y
+            apt-get upgrade -y
+            
+            # Instala o OpenJDK 17
+            apt-get install -y openjdk-17-jdk
+
+            # Configura o JAVA_HOME
+            echo "export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))" >> /etc/environment
+            echo "export PATH=$JAVA_HOME/bin:$PATH" >> /etc/environment
+            source /etc/environment
+            
+            # Instala o Maven
+            apt-get install -y maven
+
+            # Cria a pasta /app
+            mkdir -p /app
+
+            # Logs de verificação
+            echo "JDK 17 instalado: $(java -version)" > /app/setup.log
+            echo "Maven instalado: $(mvn -version)" >> /app/setup.log
+
+Outputs:
+  LoadBalancerDNSName:
+    Description: 'DNS do Load Balancer'
+    Value: !GetAtt MyLoadBalancer.DNSName
